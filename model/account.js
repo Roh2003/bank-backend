@@ -29,12 +29,4 @@ const Account = sequelize.define('Account', {
   timestamps: false,
 });
 
-Account.associate = (models) => {
-    Account.belongsTo(models.User, {
-      foreignKey: 'user_id',
-      as: 'user'
-    });
-  };
-
 module.exports = Account;
-

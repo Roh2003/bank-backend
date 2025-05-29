@@ -1,51 +1,39 @@
 const { DataTypes } = require('sequelize');
-const sequelize = require('../db');
-import User from './user';
+const sequelize = require('../db/connect');
 
-const transaction = sequelize.define('Accounts', {
-    t_id: {
-      type: DataTypes.INTEGER,
-      primaryKey: true,
-      autoIncrement: true,
-    },
-    userId: {
-        type: DataTypes.INTEGER,
-        references: {
-          model: 'Users', 
-          key: 'id',
-        },
-        onDelete: 'CASCADE',
-      },
-    name: {
-      type: DataTypes.STRING,
-      allowNull: false,
-      unique: true,
-    },
-    email: {
-      type: DataTypes.STRING,
-      allowNull: false,
-      unique: true,
-      validate: {
-        isEmail: true,
-      }
-    },
-    password: {
-      type: DataTypes.STRING,
-      allowNull: false,
-    },
-    role: {
-        type: DataTypes.ENUM('admin', 'user'), 
-        allowNull: false,
-        defaultValue: 'user',
-      }
-  }, {
-    tableName: 'Users',
-    timestamps: true,
-  });
+const Transaction = sequelize.define('Transaction', {
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true,
+  },
+  type: {
+    type: DataTypes.ENUM('Deposit', 'Withdraw'),
+    allowNull: false,
+  },
+  amount: {
+    type: DataTypes.FLOAT,
+    allowNull: false,
+    validate: {
+      min: 0.01
+    }
+  },
+  date: {
+    type: DataTypes.DATE,
+    allowNull: false,
+    defaultValue: DataTypes.NOW,
+  },
+  user_id: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+  },
+  account_id: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+  }
+}, {
+  tableName: 'transactions',
+  timestamps: false
+});
 
-  User.hasMany(transaction, { foreignKey: 'userId' });
-  transaction.belongsTo(User, { foreignKey: 'userId' });
-
-
-  
-  module.exports = User;
+module.exports = Transaction;

@@ -4,8 +4,7 @@ const authController = require('../controllers/authControllers');
 const { authenticateUser } = require('../middlewares/authMiddleware');
 const bcrypt = require('bcrypt');
 const pool = require('../db/connect')
-const User = require('../model/user')
-const Account = require('../model/account')
+const { User , Account , Transaction} = require('../model')
 const jwt = require('jsonwebtoken')
 const sequelize = require('../db/connect');
 
@@ -197,6 +196,138 @@ router.post('/customer/transaction', authenticateUser, async (req, res) => {
     res.status(error.status || 500).json({ message: error.message || 'Transaction failed' });
   }
 });
+
+
+router.post('/customer/transaction/add', authenticateUser, async (req, res) => {
+  const userId = req.user.userId;
+  const { type, amount } = req.body;
+
+  if (!['Deposit', 'Withdraw'].includes(type)) {
+    return res.status(400).json({ message: 'Invalid transaction type' });
+  }
+
+  const numericAmount = parseFloat(amount);
+  if (isNaN(numericAmount) || numericAmount <= 0) {
+    return res.status(400).json({ message: 'Invalid amount' });
+  }
+
+  try {
+    const result = await sequelize.transaction(async (t) => {
+      const account = await Account.findOne({
+        where: { user_id: userId },
+        lock: t.LOCK.UPDATE,
+        transaction: t
+      });
+
+      if (!account) {
+        const err = new Error('Account not found');
+        err.status = 404;
+        throw err;
+      }
+
+      let balance = parseFloat(account.Balance);
+      if (isNaN(balance)) balance = 0;
+
+      if (type === 'Withdraw' && numericAmount > balance) {
+        const err = new Error('Insufficient balance');
+        err.status = 400;
+        throw err;
+      }
+
+      const newBalance = parseFloat(
+        (type === 'Deposit' ? balance + numericAmount : balance - numericAmount).toFixed(2)
+      );
+
+      // Update balance
+      account.Balance = newBalance;
+      await account.save({ transaction: t });
+
+      // Record transaction
+      await Transaction.create({
+        user_id: userId,
+        type,
+        amount: numericAmount,
+        date: new Date()
+      }, { transaction: t });
+
+      return newBalance;
+    });
+
+    res.status(200).json({
+      message: `${type} successful`,
+      newBalance: result,
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(error.status || 500).json({ message: error.message || 'Transaction failed' });
+  }
+});
+
+router.get('/customer/transaction/fetch', authenticateUser, async (req, res) => {
+  const userId = req.user.userId;
+
+  try {
+    const transactions = await Transaction.findAll({
+      where: { user_id: userId },
+      order: [['date', 'DESC']]
+    });
+
+    res.status(200).json(transactions);
+  } catch (error) {
+    console.error('Error fetching transaction history:', error);
+    res.status(500).json({ message: 'Failed to retrieve transactions' });
+  }
+});
+
+router.get('/all_transactions', authenticateUser, async (req, res) => {
+  try {
+    const users = await User.findAll({
+      attributes: ['id', 'name'], // only get needed fields
+      include: [
+        {
+          model: Account,
+          as: 'Accounts', // ✅ Alias must match your association
+          attributes: ['id', 'Account_number', 'Account_type', 'Balance'],
+          include: [
+            {
+              model: Transaction,
+              as: 'AccountTransactions', // ✅ Alias must match your association
+              attributes: ['type', 'amount', 'createdAt'],
+              order: [['createdAt', 'DESC']]
+            }
+          ]
+        }
+      ]
+    });
+
+    // Format response
+    const result = users.map(user => ({
+      user_id: user.id,
+      user_name: user.name,
+      accounts: user.Accounts.map(account => ({
+        Account_number: account.Account_number,
+        Account_type: account.Account_type,
+        Balance: account.Balance
+      })),
+      transactions: user.Accounts.flatMap(account =>
+        account.AccountTransactions.map(tx => ({
+          type: tx.type,
+          amount: tx.amount,
+          date: tx.createdAt
+        }))
+      )
+    }));
+
+    res.status(200).json(result);
+
+  } catch (error) {
+    console.error('Error fetching banker transactions:', error);
+    res.status(500).json({ message: 'Failed to fetch transaction data' });
+  }
+});
+
+
 
 
 
