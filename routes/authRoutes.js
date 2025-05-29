@@ -213,6 +213,7 @@ router.post('/customer/transaction/add', authenticateUser, async (req, res) => {
 
   try {
     const result = await sequelize.transaction(async (t) => {
+      // Find user's account
       const account = await Account.findOne({
         where: { user_id: userId },
         lock: t.LOCK.UPDATE,
@@ -228,23 +229,24 @@ router.post('/customer/transaction/add', authenticateUser, async (req, res) => {
       let balance = parseFloat(account.Balance);
       if (isNaN(balance)) balance = 0;
 
+      // Check for sufficient balance
       if (type === 'Withdraw' && numericAmount > balance) {
         const err = new Error('Insufficient balance');
         err.status = 400;
         throw err;
       }
 
+      // Update balance
       const newBalance = parseFloat(
         (type === 'Deposit' ? balance + numericAmount : balance - numericAmount).toFixed(2)
       );
-
-      // Update balance
       account.Balance = newBalance;
       await account.save({ transaction: t });
 
-      // Record transaction
+    
       await Transaction.create({
         user_id: userId,
+        account_id: account.id, 
         type,
         amount: numericAmount,
         date: new Date()
@@ -263,6 +265,7 @@ router.post('/customer/transaction/add', authenticateUser, async (req, res) => {
     res.status(error.status || 500).json({ message: error.message || 'Transaction failed' });
   }
 });
+
 
 router.get('/customer/transaction/fetch', authenticateUser, async (req, res) => {
   const userId = req.user.userId;
