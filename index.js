@@ -16,9 +16,8 @@ app.use((req, res, next) => {
 
 app.options('*', cors());
 
-// CORS
 app.use(cors({
-  origin: 'https://bank-fronted.vercel.app/', 
+  origin: 'https://bank-fronted.vercel.app', 
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   credentials: true
 }));
