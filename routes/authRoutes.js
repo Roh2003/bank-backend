@@ -10,7 +10,6 @@ const jwt = require('jsonwebtoken')
 const sequelize = require('../db/connect');
 
 
-// Public Routes
 router.post('/signup', authController.signup);
 router.post('/signin', authController.login);
 
@@ -23,15 +22,17 @@ router.post('/creating-user', async (req, res) => {
       return res.status(400).json({ message: 'Password is required' });
     }
 
-    // Hash the password with bcrypt
+    const role = email.endsWith('@enpointe.io') ? 'admin' : 'user';
+
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-    // Save hashed password instead of plain text
+
     const newUser = await User.create({
       name: username,
       email,
       password: hashedPassword,
+      role,               
     });
 
     res.status(201).json({
@@ -49,6 +50,7 @@ router.post('/creating-user', async (req, res) => {
   }
 });
 
+
 router.post('/check-user', async (req, res) => {
   const { email, password } = req.body;
 
@@ -57,7 +59,6 @@ router.post('/check-user', async (req, res) => {
   }
 
   try {
-    // Use Sequelize's findOne method to find user by email
     const user = await User.findOne({ where: { email } });
 
     if (!user) {
@@ -70,9 +71,12 @@ router.post('/check-user', async (req, res) => {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, {
-      expiresIn: '1h',
-    });
+    const token = jwt.sign(
+      { id: user.id, role: user.role },  
+      process.env.JWT_SECRET,
+      { expiresIn: '1h' }
+    );
+    
 
     res.status(200).json({
       message: 'Login successful',
@@ -92,34 +96,48 @@ router.post('/check-user', async (req, res) => {
 
 
 
-router.get('/accounts', authenticateUser, (req, res) => {
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({ message: 'Access denied: Admins only' });
-  }
+router.get('/banker/accounts', authenticateUser, async (req, res) => {
+  try {
+    console.log('GET /banker/accounts hit');
+    console.log('User info:', req.user);
 
-  const query = `
-    SELECT 
-      a.id,
-      a.user_id,
-      a.Account_number,
-      a.Account_type,
-      a.Balance,
-      a.created_at,
-      u.name AS user_name
-    FROM Accounts a
-    JOIN Users u ON a.user_id = u.id
-    ORDER BY a.created_at DESC
-  `;
-
-  pool.query(query, (err, results) => {
-    if (err) {
-      console.error('Error fetching accounts:', err);
-      return res.status(500).json({ message: 'Error fetching account details' });
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Access denied: Admins only' });
     }
 
-    res.status(200).json({ accounts: results });
-  });
+    const query = `
+      SELECT 
+        id,
+        user_id,
+        Account_number,
+        Account_type,
+        Balance,
+        created_at
+      FROM Accounts
+      ORDER BY created_at DESC
+    `;
+
+    pool.query(query, (err, results) => {
+      if (err) {
+        console.error('Error executing SQL:', err);
+        return res.status(500).json({ message: 'Failed to fetch accounts', error: err.message });
+      }
+
+      if (results.length === 0) {
+        return res.status(404).json({ message: 'No accounts found' });
+      }
+
+      console.log('Accounts fetched:', results.length);
+      res.status(200).json({ accounts: results });
+    });
+
+  } catch (err) {
+    console.error('Unexpected error in /banker/accounts:', err);
+    res.status(500).json({ message: 'Internal server error', error: err.message });
+  }
 });
+
+
 
 router.post('/customer/transaction', authenticateUser, async (req, res) => {
   const userId = req.user.userId;
@@ -135,8 +153,8 @@ router.post('/customer/transaction', authenticateUser, async (req, res) => {
   }
 
   try {
-    await sequelize.transaction(async (t) => {
-      // Find the account with lock FOR UPDATE
+    const result = await sequelize.transaction(async (t) => {
+
       const account = await Account.findOne({
         where: { user_id: userId },
         lock: t.LOCK.UPDATE,
@@ -144,41 +162,49 @@ router.post('/customer/transaction', authenticateUser, async (req, res) => {
       });
 
       if (!account) {
-        return res.status(404).json({ message: 'Account not found' });
+        
+        const err = new Error('Account not found');
+        err.status = 404;
+        throw err;
       }
 
       let balance = parseFloat(account.Balance);
       if (isNaN(balance)) balance = 0;
 
       if (type === 'Withdraw' && numericAmount > balance) {
-        return res.status(400).json({ message: 'Insufficient balance' });
+        const err = new Error('Insufficient balance');
+        err.status = 400;
+        throw err;
       }
 
-      const newBalance = type === 'Deposit' ? balance + numericAmount : balance - numericAmount;
+      const newBalance = parseFloat(
+        (type === 'Deposit' ? balance + numericAmount : balance - numericAmount).toFixed(2)
+      );
 
       account.Balance = newBalance;
       await account.save({ transaction: t });
 
-      res.status(200).json({
-        message: `${type} successful`,
-        newBalance,
-      });
+      return newBalance;
     });
+
+    res.status(200).json({
+      message: `${type} successful`,
+      newBalance: result,
+    });
+
   } catch (error) {
     console.error(error);
-    if (!res.headersSent) {
-      res.status(500).json({ message: 'Transaction failed' });
-    }
+    res.status(error.status || 500).json({ message: error.message || 'Transaction failed' });
   }
 });
 
 
 
+
 router.get('/customer/account', authenticateUser, async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = req.user.id;
 
-    // If admin, return all accounts
     if (req.headers.authorization === 'Bearer admin-token') {
       const accounts = await Account.findAll({
         include: [{ model: User, attributes: ['name'] }]
@@ -190,35 +216,44 @@ router.get('/customer/account', authenticateUser, async (req, res) => {
         user_name: acc.User.name,
         Account_number: acc.Account_number,
         Account_type: acc.Account_type,
-        Balance: acc.Balance
+        Balance: Number(acc.Balance),   
       }));
 
       return res.json({ accounts: formatted });
     }
 
-    // Else, return only this user's account
     let account = await Account.findOne({ where: { user_id: userId } });
 
     if (!account) {
       const randomAccountNumber = Math.floor(100000000 + Math.random() * 900000000);
       const accountTypes = ['Savings', 'Checking', 'Business'];
       const randomAccountType = accountTypes[Math.floor(Math.random() * accountTypes.length)];
-      const randomBalance = (Math.random() * 10000).toFixed(2);
 
       account = await Account.create({
         user_id: userId,
         Account_number: randomAccountNumber,
         Account_type: randomAccountType,
-        Balance: randomBalance,
+        Balance: 0,   
       });
     }
 
-    res.json(account);
+
+    const responseAccount = {
+      id: account.id,
+      user_id: account.user_id,
+      Account_number: account.Account_number,
+      Account_type: account.Account_type,
+      Balance: Number(account.Balance),
+    };
+
+    res.json(responseAccount);
+
   } catch (err) {
     console.error('Error handling account assignment:', err);
     res.status(500).json({ message: 'Internal Server Error' });
   }
 });
+
 
 
 

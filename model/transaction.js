@@ -11,7 +11,7 @@ const transaction = sequelize.define('Accounts', {
     userId: {
         type: DataTypes.INTEGER,
         references: {
-          model: 'Users', // table name, not model name
+          model: 'Users', 
           key: 'id',
         },
         onDelete: 'CASCADE',

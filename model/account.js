@@ -1,4 +1,3 @@
-// models/Account.js
 const { DataTypes } = require('sequelize');
 const sequelize = require('../db/connect');
 

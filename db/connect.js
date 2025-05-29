@@ -19,18 +19,18 @@ try {
   // });
 
   const pool = new Sequelize(
-    dbUrl.pathname.slice(1),   // Your MySQL database name
-    dbUrl.username,   // Your MySQL username
-    dbUrl.password,   // Your MySQL password
+    dbUrl.pathname.slice(1),   
+    dbUrl.username,   
+    dbUrl.password,   
     {
-      host: dbUrl.hostname,   // e.g., 'localhost' or Railway host
-      port: dbUrl.port,   // usually 3306
-      dialect: 'mysql',            // Tells Sequelize you're using MySQL
+      host: dbUrl.hostname,   
+      port: dbUrl.port,   
+      dialect: 'mysql',           
     }
   );
   console.log('MySQL pool created successfully');
   module.exports = pool;
 } catch (err) {
   console.error('Failed to create MySQL pool:', err);
-  process.exit(1); // Exit the app if DB connection fails
+  process.exit(1); 
 }
