@@ -286,23 +286,24 @@ router.get('/customer/transaction/fetch', authenticateUser, async (req, res) => 
 router.get('/all_transactions', authenticateUser, async (req, res) => {
   try {
     const users = await User.findAll({
-      attributes: ['id', 'name'], // only get needed fields
+      attributes: ['id', 'name'],
       include: [
         {
           model: Account,
-          as: 'Accounts', // ✅ Alias must match your association
+          as: 'Accounts',
           attributes: ['id', 'Account_number', 'Account_type', 'Balance'],
           include: [
             {
               model: Transaction,
-              as: 'AccountTransactions', // ✅ Alias must match your association
-              attributes: ['type', 'amount', 'createdAt'],
-              order: [['createdAt', 'DESC']]
+              as: 'AccountTransactions',
+              attributes: ['type', 'amount', 'createdAt']
             }
           ]
         }
-      ]
+      ],
+      order: [[{ model: Account, as: 'Accounts' }, { model: Transaction, as: 'AccountTransactions' }, 'createdAt', 'DESC']]
     });
+    
 
     // Format response
     const result = users.map(user => ({
